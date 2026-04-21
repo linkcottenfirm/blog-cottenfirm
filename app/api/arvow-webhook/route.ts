@@ -9,11 +9,24 @@ const supabase = createClient(
 // Arvow webhook — receives generated articles and saves to blog_posts
 export async function POST(request: NextRequest) {
   try {
-    // Verify webhook secret
-    const secret = request.headers.get('x-arvow-secret') || request.headers.get('authorization')?.replace('Bearer ', '')
-    if (process.env.ARVOW_WEBHOOK_SECRET && secret !== process.env.ARVOW_WEBHOOK_SECRET) {
-      console.warn('Arvow webhook: unauthorized request')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // Verify webhook secret — check multiple header locations Arvow might use
+    const expectedSecret = process.env.ARVOW_WEBHOOK_SECRET
+    if (expectedSecret) {
+      const headers = [
+        request.headers.get('x-arvow-secret'),
+        request.headers.get('x-webhook-secret'),
+        request.headers.get('authorization')?.replace('Bearer ', ''),
+        request.headers.get('x-secret'),
+        request.nextUrl.searchParams.get('secret'),
+      ]
+      const isValid = headers.some(h => h === expectedSecret)
+      if (!isValid) {
+        // Log all headers for debugging
+        const allHeaders: Record<string, string> = {}
+        request.headers.forEach((v, k) => { allHeaders[k] = v })
+        console.warn('Arvow webhook 401 — headers received:', JSON.stringify(allHeaders))
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
     }
 
     const body = await request.json()
