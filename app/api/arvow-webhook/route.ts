@@ -9,6 +9,13 @@ const supabase = createClient(
 // Arvow webhook — receives generated articles and saves to blog_posts
 export async function POST(request: NextRequest) {
   try {
+    // Verify webhook secret
+    const secret = request.headers.get('x-arvow-secret') || request.headers.get('authorization')?.replace('Bearer ', '')
+    if (process.env.ARVOW_WEBHOOK_SECRET && secret !== process.env.ARVOW_WEBHOOK_SECRET) {
+      console.warn('Arvow webhook: unauthorized request')
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     console.log('Arvow webhook received:', JSON.stringify(body).slice(0, 200))
 
