@@ -13,10 +13,10 @@ export async function POST(request: NextRequest) {
     const expectedSecret = process.env.ARVOW_WEBHOOK_SECRET
     if (expectedSecret) {
       const headers = [
+        request.headers.get('x-secret'),           // Arvow's actual header
         request.headers.get('x-arvow-secret'),
         request.headers.get('x-webhook-secret'),
         request.headers.get('authorization')?.replace('Bearer ', ''),
-        request.headers.get('x-secret'),
         request.nextUrl.searchParams.get('secret'),
       ]
       const isValid = headers.some(h => h === expectedSecret)
