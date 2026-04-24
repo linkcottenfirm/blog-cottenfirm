@@ -4,6 +4,26 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import type { AdminBlogPost } from '@/lib/supabase-admin'
 
+const PUBLIC_BLOG_BASE_URL = 'https://blog.cottenfirm.com'
+const META_DESCRIPTION_TARGET_LEN = 155
+
+function deriveMetaDescription(excerpt: string, content: string): string {
+  // Prefer the excerpt; fall back to the stripped first chunk of the content.
+  const source = (excerpt || stripHtml(content)).trim()
+  if (!source) return ''
+  if (source.length <= META_DESCRIPTION_TARGET_LEN) return source
+  const truncated = source.slice(0, META_DESCRIPTION_TARGET_LEN)
+  // Try to back up to a word boundary so we don't cut mid-word
+  const lastSpace = truncated.lastIndexOf(' ')
+  return (lastSpace > META_DESCRIPTION_TARGET_LEN - 30 ? truncated.slice(0, lastSpace) : truncated).trim() + '…'
+}
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+type EditorView = 'edit' | 'preview' | 'split'
+
 export function EditForm({ post }: { post: AdminBlogPost }) {
   const router = useRouter()
   const [title, setTitle] = useState(post.title)
@@ -12,7 +32,7 @@ export function EditForm({ post }: { post: AdminBlogPost }) {
   const [metaDescription, setMetaDescription] = useState(post.meta_description || '')
   const [category, setCategory] = useState(post.category || '')
   const [content, setContent] = useState(post.content)
-  const [showPreview, setShowPreview] = useState(false)
+  const [view, setView] = useState<EditorView>('edit')
 
   const [saving, startSaving] = useTransition()
   const [publishing, startPublishing] = useTransition()
@@ -38,7 +58,15 @@ export function EditForm({ post }: { post: AdminBlogPost }) {
   function save(extra: Record<string, unknown> = {}, successMsg = 'Saved'): void {
     const fn = extra.published === true ? startPublishing : extra.published === false ? startUnpublishing : startSaving
     fn(async () => {
-      const ok = await patch({ title, slug, excerpt, meta_description: metaDescription, category, content, ...extra })
+      const ok = await patch({
+        title,
+        slug,
+        excerpt,
+        meta_description: metaDescription,
+        category,
+        content,
+        ...extra,
+      })
       if (ok) {
         setMessage({ kind: 'success', text: successMsg })
         router.refresh()
@@ -59,7 +87,13 @@ export function EditForm({ post }: { post: AdminBlogPost }) {
     })
   }
 
+  function autofillMetaDescription(): void {
+    const generated = deriveMetaDescription(excerpt, content)
+    if (generated) setMetaDescription(generated)
+  }
+
   const isPublished = post.published
+  const publicUrl = `${PUBLIC_BLOG_BASE_URL}/${post.slug}`
 
   return (
     <div className="bg-white border border-gray-200 rounded shadow-sm">
@@ -69,7 +103,7 @@ export function EditForm({ post }: { post: AdminBlogPost }) {
           <p className="text-xs text-gray-500 mt-1">
             Status: {isPublished ? <span className="text-green-700 font-medium">Published</span> : <span className="text-amber-700 font-medium">Draft</span>}
             {' · '}
-            <a href={`/${post.slug}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
+            <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
               View public URL ↗
             </a>
           </p>
@@ -148,15 +182,29 @@ export function EditForm({ post }: { post: AdminBlogPost }) {
           </Field>
         </div>
 
-        <Field label="Meta description" hint="155 characters max for Google snippet.">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-sm font-medium text-gray-700">Meta description</label>
+            <button
+              type="button"
+              onClick={autofillMetaDescription}
+              className="text-xs text-indigo-600 hover:underline"
+            >
+              Generate from excerpt
+            </button>
+          </div>
           <textarea
             value={metaDescription}
             onChange={(e) => setMetaDescription(e.target.value)}
             rows={2}
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            placeholder="Used in Google search results. ~155 chars max."
           />
-          <div className="text-xs text-gray-400 mt-1">{metaDescription.length} chars</div>
-        </Field>
+          <div className="text-xs text-gray-400 mt-1">
+            {metaDescription.length} chars
+            {metaDescription.length > 160 && <span className="text-amber-600 ml-2">⚠ Google may truncate over ~160</span>}
+          </div>
+        </div>
 
         <Field label="Excerpt" hint="Short summary used in listings and social shares.">
           <textarea
@@ -168,17 +216,35 @@ export function EditForm({ post }: { post: AdminBlogPost }) {
         </Field>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-sm font-medium text-gray-700">Content (HTML)</label>
-            <button
-              type="button"
-              onClick={() => setShowPreview((p) => !p)}
-              className="text-xs text-indigo-600 hover:underline"
-            >
-              {showPreview ? 'Hide preview' : 'Show preview'}
-            </button>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">Content</label>
+            <div role="tablist" aria-label="Editor view" className="inline-flex border border-gray-300 rounded overflow-hidden text-xs">
+              <ViewTab name="Edit" active={view === 'edit'} onClick={() => setView('edit')} />
+              <ViewTab name="Preview" active={view === 'preview'} onClick={() => setView('preview')} />
+              <ViewTab name="Split" active={view === 'split'} onClick={() => setView('split')} />
+            </div>
           </div>
-          {showPreview ? (
+
+          {view === 'edit' && (
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={28}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          )}
+
+          {view === 'preview' && (
+            <div className="border border-gray-300 rounded bg-white">
+              <div
+                className="p-6 prose prose-sm max-w-none overflow-auto"
+                style={{ minHeight: '600px' }}
+                dangerouslySetInnerHTML={{ __html: content }}
+              />
+            </div>
+          )}
+
+          {view === 'split' && (
             <div className="border border-gray-300 rounded bg-gray-50 grid grid-cols-1 md:grid-cols-2">
               <textarea
                 value={content}
@@ -188,13 +254,6 @@ export function EditForm({ post }: { post: AdminBlogPost }) {
               />
               <div className="p-4 prose prose-sm max-w-none overflow-auto" dangerouslySetInnerHTML={{ __html: content }} />
             </div>
-          ) : (
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={28}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
           )}
         </div>
 
@@ -216,5 +275,22 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       {children}
       {hint && <div className="text-xs text-gray-400 mt-1">{hint}</div>}
     </div>
+  )
+}
+
+function ViewTab({ name, active, onClick }: { name: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={
+        'px-3 py-1.5 transition-colors ' +
+        (active ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50')
+      }
+    >
+      {name}
+    </button>
   )
 }
