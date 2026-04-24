@@ -43,8 +43,13 @@ export async function POST(request: NextRequest) {
     const title = article.title || article.h1 || 'Untitled'
     const content = article.content || article.html || article.body || ''
     const slug = article.slug || generateSlug(title)
-    const metaDescription = article.meta_description || article.metaDescription || null
     const excerpt = article.excerpt || article.summary || extractExcerpt(content)
+    // Arvow doesn't reliably send meta_description — auto-derive from
+    // excerpt (or content snippet) so every article ships with one.
+    const metaDescription =
+      article.meta_description ||
+      article.metaDescription ||
+      deriveMetaDescription(excerpt, content)
     const keyword = article.keyword || article.target_keyword || null
     const category = mapKeywordToCategory(keyword || title)
 
@@ -106,6 +111,18 @@ function extractExcerpt(content: string): string {
   // Strip HTML tags and get first 200 chars
   const text = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   return text.slice(0, 200) + (text.length > 200 ? '...' : '')
+}
+
+function deriveMetaDescription(excerpt: string, content: string): string | null {
+  // Google truncates around 155-160 chars; aim for 155 with a clean word boundary.
+  const TARGET = 155
+  const source = (excerpt || content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim()
+  if (!source) return null
+  if (source.length <= TARGET) return source
+  const truncated = source.slice(0, TARGET)
+  const lastSpace = truncated.lastIndexOf(' ')
+  const cut = lastSpace > TARGET - 30 ? truncated.slice(0, lastSpace) : truncated
+  return cut.trim() + '…'
 }
 
 function mapKeywordToCategory(keyword: string): string {
