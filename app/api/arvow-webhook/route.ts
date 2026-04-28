@@ -58,7 +58,15 @@ export async function POST(request: NextRequest) {
       return match
     })
     const slug = article.slug || title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').slice(0, 80)
-    const metaDescription = article.meta_description || article.metaDescription || null
+    // Meta description — use Arvow's if provided, otherwise generate from excerpt
+    const rawMeta = article.meta_description || article.metaDescription || null
+    const metaDescription = rawMeta || (() => {
+      // Auto-generate from clean text — first 155 chars, ends at word boundary
+      const cleanText = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      const truncated = cleanText.slice(0, 155)
+      const lastSpace = truncated.lastIndexOf(' ')
+      return (lastSpace > 100 ? truncated.slice(0, lastSpace) : truncated) + '...'
+    })()
     const excerpt = article.excerpt || article.summary || content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
     const keyword = article.keyword || article.target_keyword || null
     const k = (keyword || title).toLowerCase()
@@ -72,7 +80,8 @@ export async function POST(request: NextRequest) {
       .upsert({
         slug, title, content, excerpt,
         meta_description: metaDescription,
-        published: false,
+        published: true,
+        published_at: new Date().toISOString(),
         category,
         tags: keyword ? [keyword] : null,
         author: 'Jeremy Cotten, Attorney at Law',
