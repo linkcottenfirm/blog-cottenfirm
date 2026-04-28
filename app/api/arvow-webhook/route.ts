@@ -80,8 +80,7 @@ export async function POST(request: NextRequest) {
       .upsert({
         slug, title, content, excerpt,
         meta_description: metaDescription,
-        published: true,
-        published_at: new Date().toISOString(),
+        published: false,
         category,
         tags: keyword ? [keyword] : null,
         author: 'Jeremy Cotten, Attorney at Law',
