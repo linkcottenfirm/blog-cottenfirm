@@ -32,7 +32,31 @@ export async function POST(request: NextRequest) {
     }
 
     const title = article.title || article.h1 || 'Untitled'
-    const content = article.content || article.html || article.body || ''
+    const rawContent = article.content || article.html || article.body || ''
+
+    // Strip competitor links and unwanted external domains
+    // Keep links to: portal.cottenfirm.com, blog.cottenfirm.com, cottenfirm.com, ncleg.gov, nccourts.gov, ncleg.net
+    const COMPETITOR_DOMAINS = [
+      'iticket.law', 'iticket.com',
+      'lawyers.findlaw.com', 'findlaw.com',
+      'avvo.com', 'martindale.com', 'lawinfo.com',
+      'justia.com', 'nolo.com',
+    ]
+    const KEEP_DOMAINS = [
+      'cottenfirm.com', 'portal.cottenfirm.com', 'blog.cottenfirm.com',
+      'ncleg.gov', 'ncleg.net', 'nccourts.gov', 'ncdot.gov',
+    ]
+
+    const content = rawContent.replace(/<a\s[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi, (match: string, href: string, text: string) => {
+      // Keep if it's a relative link or an approved domain
+      if (!href.startsWith('http')) return match
+      const isKeep = KEEP_DOMAINS.some(d => href.includes(d))
+      const isCompetitor = COMPETITOR_DOMAINS.some(d => href.includes(d))
+      if (isKeep) return match
+      if (isCompetitor) return text // Strip link, keep text
+      // For all other external links, keep the link (could be government, news sources)
+      return match
+    })
     const slug = article.slug || title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').slice(0, 80)
     const metaDescription = article.meta_description || article.metaDescription || null
     const excerpt = article.excerpt || article.summary || content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
